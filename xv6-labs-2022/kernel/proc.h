@@ -106,4 +106,9 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
   struct usyscall *upid;       // User pid
+  int interval;                // alarm interval
+  void (*handler)();           // handle function
+  int ticks;                   // tick times after handle
+  int handling;                 // finish the handler
+  struct trapframe *handler_trapframe; // resume trapfram to before handler do 
 };

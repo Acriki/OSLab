@@ -1,7 +1,7 @@
 #include "types.h"
 #include "riscv.h"
-#include "param.h"
 #include "defs.h"
+#include "param.h"
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
@@ -52,11 +52,13 @@ sys_sbrk(void)
 uint64
 sys_sleep(void)
 {
+  backtrace();
   int n;
   uint ticks0;
 
-
   argint(0, &n);
+  if(n < 0)
+    n = 0;
   acquire(&tickslock);
   ticks0 = ticks;
   while(ticks - ticks0 < n){
@@ -149,4 +151,31 @@ sys_sysinfo(void)
     return -1;
   }
   return 0;
+}
+
+uint64
+sys_sigalarm(void)
+{
+  int interval;
+  argint(0, &interval);
+  if (interval < 0) {
+    return -1;
+  }
+  uint64 addr;
+  argaddr(1, &addr);
+  struct proc *p = myproc();
+  p->interval = interval;
+  p->handler = (void*)addr;
+  return 0;
+}
+
+uint64
+sys_sigreturn(void)
+{
+  struct proc *p = myproc();
+  if (p->handling) {
+    memmove(p->trapframe, p->handler_trapframe, sizeof(struct trapframe));
+  }
+  p->handling = 0;
+  return p->trapframe->a0;
 }

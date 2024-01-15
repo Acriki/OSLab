@@ -125,9 +125,19 @@ found:
   p->pid = allocpid();
   p->state = USED;
   p->mask = 0;
+  p->interval = 0;
+  p->ticks = 0;
+  p->handler = 0;
+  p->handling = 0;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+  // Allocate a trapframe page to store status before handle time envet.
+  if((p->handler_trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p);
     release(&p->lock);
     return 0;
@@ -171,6 +181,14 @@ freeproc(struct proc *p)
   }
   p->upid = 0;
   #endif
+  p->interval = 0;
+  p->handler = 0;
+  p->ticks = 0;
+  p->handling = 0;
+  if (p->handler_trapframe) {
+    kfree((void*)p->handler_trapframe);
+  }
+  p->handler_trapframe = 0;
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
