@@ -45,16 +45,15 @@ sys_sbrk(void)
   argint(0, &n);
   addr = myproc()->sz;
   // lazy allocate
-  myproc()->sz += n;
-  // if(growproc(n) < 0)
-  //   return -1;
+  // myproc()->sz += n;
+  if(growproc(n) < 0)
+    return -1;
   return addr;
 }
 
 uint64
 sys_sleep(void)
 {
-  backtrace();
   int n;
   uint ticks0;
 

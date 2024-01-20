@@ -125,6 +125,41 @@ walkaddr(pagetable_t pagetable, uint64 va)
   return pa;
 }
 
+uint64 
+cow_walkaddr(pagetable_t pagetable, uint64 va) {
+  pte_t *pte;
+  uint64 pa;
+  int flags;
+  
+  if(va >= MAXVA)
+      return 0;
+
+    pte = walk(pagetable, va, 0); // 虚拟地址对应PTE
+    if (pte == 0) return 0;
+    else if ((*pte & PTE_V) == 0) return 0;
+    else if ((*pte & PTE_U) == 0) return 0;
+
+    pa = PTE2PA(*pte);
+
+    flags = PTE_FLAGS(*pte);
+    if (flags & PTE_W) return pa; // 若有PTE_W说明不是cow
+    else if ((flags & PTE_RSW) == 0) return 0;  // 判断是否带PTE_C
+
+    void* new_mem = kalloc();  // 新页面空间    
+    if (new_mem == 0) 
+    return 0;
+
+    memmove(new_mem, (const void*)pa, PGSIZE);  // 拷贝页面空间
+    uvmunmap(pagetable, PGROUNDDOWN(va), 1, 1);  // 解除map并释放空间
+    flags = (flags | PTE_W) ^ PTE_RSW;  // 新flags
+    // 建立新map
+    if (mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)new_mem, flags) != 0) {
+        kfree(new_mem);
+        return 0;
+    }  
+    return (uint64)new_mem;
+}
+
 // add a mapping to the kernel page table.
 // only used when booting.
 // does not flush TLB or enable paging.
@@ -181,6 +216,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: walk");
     if((*pte & PTE_V) == 0)
       continue;
+      // panic("uvmunmap: not mapped");
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -308,7 +344,6 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -316,14 +351,15 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
+    if (*pte & PTE_W) {
+      *pte |= PTE_RSW;
+      *pte &= ~PTE_W;
+    }
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    if(mappages(new, i, PGSIZE, pa, flags) != 0){
       goto err;
     }
+    inref(pa);
   }
   return 0;
 
@@ -355,7 +391,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
-    pa0 = walkaddr(pagetable, va0);
+    pa0 = cow_walkaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;
     n = PGSIZE - (dstva - va0);
